@@ -18,6 +18,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stm32f3xx_hal.h"
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -100,7 +102,7 @@ void displayNumber(uint8_t num)
   */
 int main(void)
 {
-
+  
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -135,18 +137,49 @@ int main(void)
   /* USER CODE BEGIN WHILE */
     
   
-  uint8_t i;
-
+  // uint8_t i;
+  // uint8_t studentID[] = {1, 0, 2, 2, 9};
+  // uint8_t idLength = 5;
+  // uint8_t index = 0;
+  int counter = 0;
   while (1){
-    for (i = 0; i < 16; i++){
-        displayNumber(i);
-        HAL_Delay(2000);   // 2-second delay
+    //task1
+    // for (i = 0; i < 16; i++){
+    //     displayNumber(i);
+    //     HAL_Delay(2000);   // 2-second delay
+    //   }
+    //task2
+    // if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
+    // {
+    //     displayNumber(studentID[index]);
+
+    //     index++;
+    //     if (index >= idLength)
+    //         index = 0;
+
+    //     HAL_Delay(300);   
+
+    //     while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET);
+    // }
+
+    //Task3
+    if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_2) == GPIO_PIN_SET){
+      if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET){
+        counter++;
       }
+      if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_2) == GPIO_PIN_SET){
+        counter--;
+      }
+      if(counter > 15 || counter < 0){counter = 0;}
+      displayNumber(counter);
+      while(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
+      {};
     }
+   
     /* USER CODE BEGIN 3 */
 }
   /* USER CODE END 3 */
-
+}
 
 /**
   * @brief System Clock Configuration
@@ -328,6 +361,7 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+    //     dis
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
