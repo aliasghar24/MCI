@@ -19,7 +19,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f3xx_hal.h"
-
+#include "stm32f3xx_hal_gpio.h"
+#include "stdlib.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -141,7 +142,7 @@ int main(void)
   // uint8_t studentID[] = {1, 0, 2, 2, 9};
   // uint8_t idLength = 5;
   // uint8_t index = 0;
-  int counter = 0;
+  int counter = 5;
   while (1){
     //task1
     // for (i = 0; i < 16; i++){
@@ -163,19 +164,27 @@ int main(void)
     // }
 
     //Task3
-    if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_2) == GPIO_PIN_SET){
-      if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET){
-        counter++;
-      }
-      if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_2) == GPIO_PIN_SET){
-        counter--;
-      }
-      if(counter > 15 || counter < 0){counter = 0;}
-      displayNumber(counter);
-      while(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
-      {};
-    }
-   
+    // if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == GPIO_PIN_SET){
+    //   if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET){
+    //     counter++;
+    //   }
+    //   if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == GPIO_PIN_SET){
+    //     counter--;
+    //   }
+    //   if(counter > 15 || counter < 0){counter = 5;}
+    //   displayNumber(counter);
+    //   while(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
+    //   {};
+    // }
+
+    //Task4
+    // if  (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0)==GPIO_PIN_SET){
+    //   int random_value = (rand()%6)+1;
+    //   displayNumber(random_value);
+    //   HAL_Delay(200);
+    
+    // while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0)==GPIO_PIN_SET);
+    // }
     /* USER CODE BEGIN 3 */
 }
   /* USER CODE END 3 */
