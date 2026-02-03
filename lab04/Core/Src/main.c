@@ -18,9 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "stm32f3xx_hal.h"
 #include "stm32f3xx_hal_gpio.h"
-#include "stdlib.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -47,6 +45,8 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim2;
+
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
@@ -58,6 +58,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_TIM2_Init(void);
 static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -65,45 +66,25 @@ static void MX_USB_PCD_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t hexMap[16] = {
-      0x3F, // 0
-      0x06, // 1
-      0x5B, // 2
-      0x4F, // 3
-      0x66, // 4
-      0x6D, // 5
-      0x7D, // 6
-      0x07, // 7
-      0x7F, // 8
-      0x6F, // 9
-      0x77, // A
-      0x7C, // b
-      0x39, // C
-      0x5E, // d
-      0x79, // E
-      0x71  // F
-  };
-void displayNumber(uint8_t num)
-{
-    uint8_t seg = hexMap[num];
 
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, !(seg & 0x01)); // a
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9,  !(seg & 0x02)); // b
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8,  !(seg & 0x04)); // c
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9,  !(seg & 0x08)); // d
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8,  !(seg & 0x10)); // e
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, !(seg & 0x20)); // f
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, !(seg & 0x40)); // g
-}
 /* USER CODE END 0 */
 
 /**
   * @brief  The application entry point.
   * @retval int
   */
+
+
+void delay_ms(uint32_t ms){
+  __HAL_TIM_SET_COUNTER(&htim2,0);
+  HAL_TIM_Base_Start(&htim2);
+  while(__HAL_TIM_GET_COUNTER(&htim2)<ms) {}
+  HAL_TIM_Base_Stop(&htim2);
+}
+
 int main(void)
 {
-  
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -111,7 +92,6 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -129,6 +109,7 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_SPI1_Init();
+  MX_TIM2_Init();
   MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
 
@@ -136,57 +117,15 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
     
-  
-  // uint8_t i;
-  // uint8_t studentID[] = {1, 0, 2, 2, 9};
-  // uint8_t idLength = 5;
-  // uint8_t index = 0;
-  int counter = 0;
-  while (1){
-    //task1
-    // for (i = 0; i < 16; i++){
-    //     displayNumber(i);
-    //     HAL_Delay(2000);   // 2-second delay
-    //   }
-    //task2
-    // if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
-    // {
-    //     displayNumber(studentID[index]);
+    HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_9);
+    delay_ms(1000);
 
-    //     index++;
-    //     if (index >= idLength)
-    //         index = 0;
-
-    //     HAL_Delay(300);   
-
-    //     while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET);
-    // }
-
-    //Task3
-    if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET || HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == GPIO_PIN_SET){
-      if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET){
-        counter++;
-      }
-      if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == GPIO_PIN_SET){
-        counter--;
-      }
-      if(counter > 15 || counter < 0){counter = 0;}
-      displayNumber(counter);
-      while(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
-      {};
-    }
-
-    //Task4
-    // if  (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0)==GPIO_PIN_SET){
-    //   int random_value = (rand()%6)+1;
-    //   displayNumber(random_value);
-    //   HAL_Delay(200);
-    
-    // while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0)==GPIO_PIN_SET){};
-    // }
     /* USER CODE BEGIN 3 */
-}
+  }
   /* USER CODE END 3 */
 }
 
@@ -327,6 +266,51 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 48000 - 1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief USB Initialization Function
   * @param None
   * @retval None
@@ -370,7 +354,6 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-    //     dis
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
@@ -381,13 +364,6 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOE, CS_I2C_SPI_Pin|LD4_Pin|LD3_Pin|LD5_Pin
                           |LD7_Pin|LD9_Pin|LD10_Pin|LD8_Pin
                           |LD6_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10
-                          |GPIO_PIN_15, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_11, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : DRDY_Pin MEMS_INT3_Pin MEMS_INT4_Pin MEMS_INT1_Pin
                            MEMS_INT2_Pin */
@@ -408,27 +384,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : B1_Pin PA1 */
-  GPIO_InitStruct.Pin = B1_Pin|GPIO_PIN_1;
+  /*Configure GPIO pin : B1_Pin */
+  GPIO_InitStruct.Pin = B1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA2 PA8 PA9 PA10
-                           PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10
-                          |GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PC8 PC9 PC11 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_11;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
