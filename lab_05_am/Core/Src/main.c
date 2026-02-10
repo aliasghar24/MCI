@@ -60,12 +60,55 @@ static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
-
+void Motor_A_SetSpeed(uint8_t speed_percent);
+void Motor_B_SetSpeed(uint8_t speed_percent);
+void Motor_A_Accelerate(uint32_t duration_ms);
+void Motor_A_Decelerate(uint32_t duration_ms);
+void Motor_B_Accelerate(uint32_t duration_ms);
+void Motor_B_Decelerate(uint32_t duration_ms);
+void Both_Motors_SetSpeed(uint8_t speed_percent);
+void Both_Motors_Accelerate(uint32_t duration_ms);
+void Both_Motors_Decelerate(uint32_t duration_ms);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+// ==================== MOTOR A CONTROL (TIM2_CH1 + PC0/PC1) ====================
+#define MOTOR_A_FORWARD()   do { \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET); \
+                            } while(0)
 
+#define MOTOR_A_REVERSE()   do { \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET); \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET); \
+                            } while(0)
+
+#define MOTOR_A_STOP()      do { \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET); \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET); \
+                            } while(0)
+
+// ==================== MOTOR B CONTROL (TIM2_CH2 + PC2/PC3) ====================
+#define MOTOR_B_FORWARD()   do { \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET); \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); \
+                            } while(0)
+
+#define MOTOR_B_REVERSE()   do { \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET); \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); \
+                            } while(0)
+
+#define MOTOR_B_STOP()      do { \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET); \
+                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); \
+                            } while(0)
+
+// ==================== BOTH MOTORS COMBINED ====================
+#define BOTH_MOTORS_FORWARD()  do { MOTOR_A_FORWARD(); MOTOR_B_FORWARD(); } while(0)
+#define BOTH_MOTORS_REVERSE()  do { MOTOR_A_REVERSE(); MOTOR_B_REVERSE(); } while(0)
+#define BOTH_MOTORS_STOP()     do { MOTOR_A_STOP(); MOTOR_B_STOP(); } while(0)
 /* USER CODE END 0 */
 
 /**
@@ -118,14 +161,22 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   /* Private variables ---------------------------------------------------------*/
-uint16_t dutyCycle = 0;
-uint8_t step = 5; // How much brightness changes per increment
+// uint16_t dutyCycle = 0;
+// uint8_t step = 5; // How much brightness changes per increment
 
 /* USER CODE BEGIN 2 */
 // 1. Start PWM for all three colors
-HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Red
-HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2); // Green
-HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3); // Blue
+// HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Red
+// HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2); // Green
+// HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3); // Blue
+  // Start PWM on both channels
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);  // Motor A Speed (PA15)
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);  // Motor B Speed (PA1 or PB3)
+  
+  // Initialize both motors to stopped state
+  BOTH_MOTORS_STOP();
+  Motor_A_SetSpeed(0);
+  Motor_B_SetSpeed(0);
 /* USER CODE END 2 */
 
 /* Infinite loop */
@@ -133,22 +184,56 @@ HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3); // Blue
 while (1)
 {
   // --- PULSE UP ---
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 1000); // Green
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 1000); // Blue
-  for (dutyCycle = 0; dutyCycle <= 1000; dutyCycle += step) 
-  {
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, dutyCycle); // Red
+  //task1 
+  // __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 1000); // Green
+  // __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 1000); // Blue
+  // for (dutyCycle = 0; dutyCycle <= 1000; dutyCycle += step) 
+  // {
+  //   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, dutyCycle); // Red
     
-    HAL_Delay(5); // Adjust for "breathing" speed
-  }
+  //   HAL_Delay(5); // Adjust for "breathing" speed
+  // }
 
-  // --- PULSE DOWN ---
-  for (dutyCycle = 1000; dutyCycle > 0; dutyCycle -= step) 
-  {
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, dutyCycle);
+  // // --- PULSE DOWN ---
+  // for (dutyCycle = 1000; dutyCycle > 0; dutyCycle -= step) 
+  // {
+  //   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, dutyCycle);
     
-    HAL_Delay(5);
-  }
+  //   HAL_Delay(5);
+  //}
+  BOTH_MOTORS_FORWARD();              // Set both to forward direction
+    Both_Motors_Accelerate(3000);       // Speed up together: 0% → 100% (3 sec)
+    HAL_Delay(2000);                    // Run at full speed (2 sec)
+    Both_Motors_Decelerate(3000);       // Slow down together: 100% → 0% (3 sec)
+    BOTH_MOTORS_STOP();                 // Stop both
+    HAL_Delay(1000);                    // Pause (1 sec)
+    
+    // ========== DEMO 2: Turn Left (Spin in place) ==========
+    MOTOR_A_REVERSE();                  // Left motor reverse
+    MOTOR_B_FORWARD();                  // Right motor forward
+    Motor_A_SetSpeed(60);               // 60% speed
+    Motor_B_SetSpeed(60);               // 60% speed
+    HAL_Delay(2000);                    // Turn for 2 seconds
+    BOTH_MOTORS_STOP();                 // Stop
+    HAL_Delay(1000);                    // Pause (1 sec)
+    
+    // ========== DEMO 3: Turn Right (Spin in place) ==========
+    MOTOR_A_FORWARD();                  // Left motor forward
+    MOTOR_B_REVERSE();                  // Right motor reverse
+    Motor_A_SetSpeed(60);               // 60% speed
+    Motor_B_SetSpeed(60);               // 60% speed
+    HAL_Delay(2000);                    // Turn for 2 seconds
+    BOTH_MOTORS_STOP();                 // Stop
+    HAL_Delay(1000);                    // Pause (1 sec)
+    
+    // ========== DEMO 4: Both Motors Reverse Together ==========
+    BOTH_MOTORS_REVERSE();              // Set both to reverse direction
+    Both_Motors_Accelerate(3000);       // Speed up together: 0% → 100% (3 sec)
+    HAL_Delay(2000);                    // Run at full speed (2 sec)
+    Both_Motors_Decelerate(3000);       // Slow down together: 100% → 0% (3 sec)
+    BOTH_MOTORS_STOP();                 // Stop both
+    HAL_Delay(2000);                    // Longer pause before repeat (2 sec)
+    
 }
 /* USER CODE END WHILE */
   /* USER CODE END 3 */
@@ -434,7 +519,96 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+  // ==================== INDIVIDUAL MOTOR SPEED CONTROL ====================
 
+/**
+ * @brief Set Motor A speed
+ * @param speed_percent: 0-100 (0=stopped, 100=full speed)
+ */
+void Motor_A_SetSpeed(uint8_t speed_percent) {
+  if (speed_percent > 100) {
+    speed_percent = 100;
+  }
+  uint16_t ccr_value = (speed_percent * 999) / 100;
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, ccr_value);
+}
+
+/**
+ * @brief Set Motor B speed
+ * @param speed_percent: 0-100 (0=stopped, 100=full speed)
+ */
+void Motor_B_SetSpeed(uint8_t speed_percent) {
+  if (speed_percent > 100) {
+    speed_percent = 100;
+  }
+  uint16_t ccr_value = (speed_percent * 999) / 100;
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, ccr_value);
+}
+
+// ==================== MOTOR A ACCELERATION/DECELERATION ====================
+
+void Motor_A_Accelerate(uint32_t duration_ms) {
+  uint8_t speed;
+  uint32_t delay_per_step = duration_ms / 100;
+  for (speed = 0; speed <= 100; speed++) {
+    Motor_A_SetSpeed(speed);
+    HAL_Delay(delay_per_step);
+  }
+}
+
+void Motor_A_Decelerate(uint32_t duration_ms) {
+  int8_t speed;
+  uint32_t delay_per_step = duration_ms / 100;
+  for (speed = 100; speed >= 0; speed--) {
+    Motor_A_SetSpeed(speed);
+    HAL_Delay(delay_per_step);
+  }
+}
+
+// ==================== MOTOR B ACCELERATION/DECELERATION ====================
+
+void Motor_B_Accelerate(uint32_t duration_ms) {
+  uint8_t speed;
+  uint32_t delay_per_step = duration_ms / 100;
+  for (speed = 0; speed <= 100; speed++) {
+    Motor_B_SetSpeed(speed);
+    HAL_Delay(delay_per_step);
+  }
+}
+
+void Motor_B_Decelerate(uint32_t duration_ms) {
+  int8_t speed;
+  uint32_t delay_per_step = duration_ms / 100;
+  for (speed = 100; speed >= 0; speed--) {
+    Motor_B_SetSpeed(speed);
+    HAL_Delay(delay_per_step);
+  }
+}
+
+// ==================== SYNCHRONIZED CONTROL (BOTH MOTORS) ====================
+
+void Both_Motors_SetSpeed(uint8_t speed_percent) {
+  Motor_A_SetSpeed(speed_percent);
+  Motor_B_SetSpeed(speed_percent);
+}
+
+void Both_Motors_Accelerate(uint32_t duration_ms) {
+  uint8_t speed;
+  uint32_t delay_per_step = duration_ms / 100;
+  for (speed = 0; speed <= 100; speed++) {
+    Both_Motors_SetSpeed(speed);
+    HAL_Delay(delay_per_step);
+  }
+}
+
+void Both_Motors_Decelerate(uint32_t duration_ms) {
+  int8_t speed;
+  uint32_t delay_per_step = duration_ms / 100;
+  for (speed = 100; speed >= 0; speed--) {
+    Both_Motors_SetSpeed(speed);
+    HAL_Delay(delay_per_step);
+  }
+}
 /* USER CODE END 4 */
 
 /**
