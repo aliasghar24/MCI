@@ -191,7 +191,7 @@ while (1)
   // {
   //   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, dutyCycle); // Red
     
-  //   HAL_Delay(5); // Adjust for "breathing" speed
+  //   HAL_Delay(5); 
   // }
 
   // // --- PULSE DOWN ---
@@ -201,7 +201,7 @@ while (1)
     
   //   HAL_Delay(5);
   //}
-  BOTH_MOTORS_FORWARD();              // Set both to forward direction
+    BOTH_MOTORS_FORWARD();              // Set both to forward direction
     Both_Motors_Accelerate(3000);       // Speed up together: 0% → 100% (3 sec)
     HAL_Delay(2000);                    // Run at full speed (2 sec)
     Both_Motors_Decelerate(3000);       // Slow down together: 100% → 0% (3 sec)
@@ -240,7 +240,7 @@ while (1)
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
-}
+
 
 /**
   * @brief System Clock Configuration
