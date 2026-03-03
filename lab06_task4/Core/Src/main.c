@@ -17,11 +17,14 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "main.h"
+#include "stm32f3xx_hal.h"
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,7 +47,6 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 
-TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
@@ -52,11 +54,14 @@ UART_HandleTypeDef huart2;
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
-#define TIMER_HZ 1000000UL     // TIM3 tick rate (1 MHz)
-#define PPR      330.0f         // <-- CHANGE THIS to your encoder PPR
+#define TIMER_HZ 1000000UL
+#define PPR      330.0f
+volatile uint32_t ic_val1 = 0;
+volatile uint32_t ic_val2 = 0;
+volatile uint32_t ic_period = 0;
+volatile uint8_t  ic_ready = 0;
+volatile uint8_t  first_capture = 1;
 
-#define ENC_GPIO_Port GPIOA    // <-- CHANGE if your encoder is on another port
-#define ENC_Pin       GPIO_PIN_10  // <-- CHANGE if not PA10
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -65,85 +70,24 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
-static void MX_USB_PCD_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_TIM2_Init(void);
+static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
-void Motor_A_SetSpeed(uint8_t speed_percent);
-void Motor_B_SetSpeed(uint8_t speed_percent);
-void Both_Motors_SetSpeed(uint8_t speed_percent);
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
-// ==================== MOTOR A CONTROL (TIM3_CH1 + PC0/PC1) ====================
+// ===== MOTOR A (TIM3_CH1) =====
 #define MOTOR_A_FORWARD()   do { \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET); \
-                            } while(0)
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); \
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET); \
+} while(0)
 
-#define MOTOR_A_REVERSE()   do { \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET); \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET); \
-                            } while(0)
-
-#define MOTOR_A_STOP()      do { \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET); \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET); \
-                            } while(0)
-
-// ==================== MOTOR B CONTROL (TIM3_CH2 + PC2/PC3) ====================
+// ===== MOTOR B (TIM3_CH2) =====
 #define MOTOR_B_FORWARD()   do { \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET); \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); \
-                            } while(0)
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET); \
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); \
+} while(0)
 
-#define MOTOR_B_REVERSE()   do { \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET); \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET); \
-                            } while(0)
-
-#define MOTOR_B_STOP()      do { \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET); \
-                              HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); \
-                            } while(0)
-
-// ==================== BOTH MOTORS COMBINED ====================
+// ===== BOTH =====
 #define BOTH_MOTORS_FORWARD()  do { MOTOR_A_FORWARD(); MOTOR_B_FORWARD(); } while(0)
-#define BOTH_MOTORS_REVERSE()  do { MOTOR_A_REVERSE(); MOTOR_B_REVERSE(); } while(0)
-#define BOTH_MOTORS_STOP()     do { MOTOR_A_STOP(); MOTOR_B_STOP(); } while(0)
 
-
-// ==================== TIMER DIFF (handles rollover) ====================
-static uint32_t timer_diff(uint32_t t1, uint32_t t2)
-{
-  if (t2 >= t1) return (t2 - t1);
-  return ((htim3.Instance->ARR + 1U) - t1 + t2);
-}
-
-// ==================== UART HELPERS ====================
-
-
-// ==================== ENCODER: WAIT FOR FALLING EDGE WITH TIMEOUT ====================
-// Returns 1 if edge detected, 0 if timed out
-static uint8_t wait_falling_edge_timeout(uint32_t timeout_ms)
-{
-    uint32_t start = HAL_GetTick();
-    // Wait for HIGH
-    while (HAL_GPIO_ReadPin(ENC_GPIO_Port, ENC_Pin) == GPIO_PIN_RESET) {
-        if (HAL_GetTick() - start > timeout_ms) return 0;
-    }
-    // Wait for LOW (falling edge)
-    while (HAL_GPIO_ReadPin(ENC_GPIO_Port, ENC_Pin) == GPIO_PIN_SET) {
-        if (HAL_GetTick() - start > timeout_ms) return 0;
-    }
-    return 1;
-}
-
-// ==================== MOTOR SPEED FUNCTIONS ====================
-
-// Motor A speed (TIM3_CH1)
 void Motor_A_SetSpeed(uint8_t speed_percent)
 {
     if (speed_percent > 100) speed_percent = 100;
@@ -151,7 +95,6 @@ void Motor_A_SetSpeed(uint8_t speed_percent)
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm);
 }
 
-// Motor B speed (TIM3_CH2)
 void Motor_B_SetSpeed(uint8_t speed_percent)
 {
     if (speed_percent > 100) speed_percent = 100;
@@ -159,11 +102,43 @@ void Motor_B_SetSpeed(uint8_t speed_percent)
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, pwm);
 }
 
-// Both motors together
 void Both_Motors_SetSpeed(uint8_t speed_percent)
 {
     Motor_A_SetSpeed(speed_percent);
     Motor_B_SetSpeed(speed_percent);
+}
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+void myPrintf(const char *fmt, ...)
+{
+    char buffer[100];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+}
+
+static uint32_t timer_diff(uint32_t t1, uint32_t t2)
+{
+  if (t2 >= t1) return (t2 - t1);
+  return ((htim3.Instance->ARR + 1U) - t1 + t2);
+}
+static uint8_t wait_falling_edge_timeout(uint32_t timeout_ms)
+{
+    uint32_t start = HAL_GetTick();
+
+    while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_RESET) {
+        if (HAL_GetTick() - start > timeout_ms) return 0;
+    }
+
+    while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_SET) {
+        if (HAL_GetTick() - start > timeout_ms) return 0;
+    }
+
+    return 1;
 }
 
 /* USER CODE END 0 */
@@ -176,6 +151,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -184,14 +160,14 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  // NOTE: Do NOT put any uart_print or variable references here.
-  //       UART is not initialized yet at this point.
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -199,77 +175,59 @@ int main(void)
   MX_I2C1_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
-  MX_USB_PCD_Init();
   MX_USART2_UART_Init();
-  MX_TIM2_Init();
+  MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
-
-  // FIX 1: Start base timer FIRST
   HAL_TIM_Base_Start(&htim3);
+  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
+  
 
-  // FIX 2: Start PWM on BOTH channels (was duplicate CH1 before)
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);   // Motor A PWM
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);   // Motor B PWM  <-- FIXED (was CH1 duplicate)
-
-  // Clean init: stop both motors first
-  BOTH_MOTORS_STOP();
-  Motor_A_SetSpeed(0);
-  Motor_B_SetSpeed(0);
-
-  // Now UART is ready - safe to print
-  myPrintf("System initialized.\r\n");
-  myPrintf("Starting motors...\r\n");
-
-  // Start both motors forward at full speed
-  BOTH_MOTORS_FORWARD();
-  Both_Motors_SetSpeed(100);
-
-  myPrintf("Motors running. Encoder RPM polling started...\r\n");
-
+  myPrintf("TIM2 Input Capture Started\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+  HAL_TIM_Base_Start(&htim3);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+
+  BOTH_MOTORS_FORWARD();
+  Both_Motors_SetSpeed(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-    // 1) First falling edge (500ms timeout)
     if (!wait_falling_edge_timeout(500))
-    {
-        myPrintf("No encoder pulse! Check wiring on PA10.\r\n");
-        HAL_Delay(500);
-        continue;
-    }
+{
+    myPrintf("No encoder pulse!\r\n");
+    HAL_Delay(500);
+}
+    else{
     uint32_t t1 = __HAL_TIM_GET_COUNTER(&htim3);
 
-    // 2) Second falling edge (500ms timeout)
     if (!wait_falling_edge_timeout(500))
     {
-        myPrintf("No encoder pulse! Check wiring on PA10.\r\n");
+        myPrintf("No encoder pulse!\r\n");
         HAL_Delay(500);
-        continue;
-    }
-    uint32_t t2 = __HAL_TIM_GET_COUNTER(&htim3);
-
-    // 3) Compute period in ticks (us)
-    uint32_t dt = timer_diff(t1, t2);
-
-    if (dt > 0)
-    {
-      float freq = (float)TIMER_HZ / (float)dt;   // Hz
-      float rpm  = (60.0f * freq) / PPR;
-
-      myPrintf("dt = %lu us | RPM = %.2f\r\n", dt, rpm);
     }
     else
     {
-      myPrintf("dt=0, skipping.\r\n");
-    }
+        uint32_t t2 = __HAL_TIM_GET_COUNTER(&htim3);
 
-    HAL_Delay(200);
+        uint32_t dt = timer_diff(t1, t2);
+
+        if (dt > 0)
+        {
+            float freq = (float)TIMER_HZ / dt;
+            float rpm  = (60.0f * freq) / PPR;
+
+            myPrintf("dt = %lu us | RPM = %.2f\r\n", dt, rpm);
+
+            HAL_Delay(100);
+        }
+    }
+}
   }
   /* USER CODE END 3 */
 }
@@ -340,7 +298,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x00201D2B;
+  hi2c1.Init.Timing = 0x2000090E;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -413,54 +371,6 @@ static void MX_SPI1_Init(void)
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_IC_InitTypeDef sConfigIC = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 47;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -475,6 +385,7 @@ static void MX_TIM3_Init(void)
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
 
   /* USER CODE BEGIN TIM3_Init 1 */
 
@@ -498,6 +409,10 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_IC_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
@@ -509,6 +424,18 @@ static void MX_TIM3_Init(void)
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim3, &sConfigIC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -644,13 +571,44 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF10_TIM2;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM2 &&
+        htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+    {
+        if (first_capture)
+        {
+            ic_val1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+            first_capture = 0;
+        }
+        else
+        {
+            ic_val2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
 
+            if (ic_val2 >= ic_val1)
+                ic_period = ic_val2 - ic_val1;
+            else
+                ic_period = (0xFFFFFFFF - ic_val1) + ic_val2 + 1;
+
+            ic_val1 = ic_val2;
+            ic_ready = 1;
+        }
+    }
+}
 /* USER CODE END 4 */
 
 /**
@@ -663,7 +621,18 @@ void Error_Handler(void)
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
-  {
+  {if (ic_ready){
+      ic_ready = 0;
+
+      if (ic_period > 0)
+      {
+          float frequency = 1000000.0f / (float)ic_period;
+          float rpm = (60.0f * frequency) / (float)PPR;
+
+          myPrintf("IC Period: %lu us | Freq: %.2f Hz | RPM: %.2f\r\n",
+                  ic_period, frequency, rpm);
+      }
+    }
   }
   /* USER CODE END Error_Handler_Debug */
 }
