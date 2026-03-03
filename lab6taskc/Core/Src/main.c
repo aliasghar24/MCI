@@ -20,6 +20,9 @@
 #include "main.h"
 #include "stdio.h"
 #include "string.h"
+#include <inttypes.h>
+#include "stdarg.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -53,12 +56,10 @@ PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
 #define TIMER_HZ 1000000UL     // TIM3 tick rate (1 MHz)
-#define PPR      20.0f         // <-- CHANGE THIS to your encoder PPR
+#define PPR      330.0f         // <-- CHANGE THIS to your encoder PPR
 
 #define ENC_GPIO_Port GPIOA    // <-- CHANGE if your encoder is on another port
 #define ENC_Pin       GPIO_PIN_10  // <-- CHANGE if not PA10
-
-static char txbuf[128];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,20 +70,27 @@ static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USB_PCD_Init(void);
 static void MX_USART2_UART_Init(void);
+void myPrintf(const char *fmt,...){
+    char buffer[128];   
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+    HAL_UART_Transmit(&huart2,
+                      (uint8_t *)buffer,
+                      strlen(buffer),
+                      HAL_MAX_DELAY);
+  }
 /* USER CODE BEGIN PFP */
 void Motor_A_SetSpeed(uint8_t speed_percent);
 void Motor_B_SetSpeed(uint8_t speed_percent);
-void Motor_A_Accelerate(uint32_t duration_ms);
-void Motor_A_Decelerate(uint32_t duration_ms);
-void Motor_B_Accelerate(uint32_t duration_ms);
-void Motor_B_Decelerate(uint32_t duration_ms);
 void Both_Motors_SetSpeed(uint8_t speed_percent);
-void Both_Motors_Accelerate(uint32_t duration_ms);
-void Both_Motors_Decelerate(uint32_t duration_ms);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+// ==================== MOTOR A CONTROL (TIM3_CH1 + PC0/PC1) ====================
 #define MOTOR_A_FORWARD()   do { \
                               HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET); \
                               HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET); \
@@ -98,7 +106,7 @@ void Both_Motors_Decelerate(uint32_t duration_ms);
                               HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET); \
                             } while(0)
 
-// ==================== MOTOR B CONTROL (TIM2_CH2 + PC2/PC3) ====================
+// ==================== MOTOR B CONTROL (TIM3_CH2 + PC2/PC3) ====================
 #define MOTOR_B_FORWARD()   do { \
                               HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET); \
                               HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET); \
@@ -120,52 +128,47 @@ void Both_Motors_Decelerate(uint32_t duration_ms);
 #define BOTH_MOTORS_STOP()     do { MOTOR_A_STOP(); MOTOR_B_STOP(); } while(0)
 
 
+// ==================== TIMER DIFF (handles rollover) ====================
 static uint32_t timer_diff(uint32_t t1, uint32_t t2)
 {
   if (t2 >= t1) return (t2 - t1);
   return ((htim3.Instance->ARR + 1U) - t1 + t2);
 }
 
-void uart_print(char *msg)
+// ==================== UART HELPERS ====================
+
+
+// ==================== ENCODER: WAIT FOR FALLING EDGE WITH TIMEOUT ====================
+// Returns 1 if edge detected, 0 if timed out
+static uint8_t wait_falling_edge_timeout(uint32_t timeout_ms)
 {
-    HAL_UART_Transmit(&huart2,
-                      (uint8_t*)msg,
-                      strlen(msg),
-                      HAL_MAX_DELAY);
+    uint32_t start = HAL_GetTick();
+    // Wait for HIGH
+    while (HAL_GPIO_ReadPin(ENC_GPIO_Port, ENC_Pin) == GPIO_PIN_RESET) {
+        if (HAL_GetTick() - start > timeout_ms) return 0;
+    }
+    // Wait for LOW (falling edge)
+    while (HAL_GPIO_ReadPin(ENC_GPIO_Port, ENC_Pin) == GPIO_PIN_SET) {
+        if (HAL_GetTick() - start > timeout_ms) return 0;
+    }
+    return 1;
 }
 
-void uart_print_uint(uint32_t val)
-{
-    char buf[20];
-    sprintf(buf,"%lu",val);
-    uart_print(buf);
-}
+// ==================== MOTOR SPEED FUNCTIONS ====================
 
-// Wait for HIGH then LOW => falling edge
-static void wait_falling_edge(void)
-{
-  while (HAL_GPIO_ReadPin(ENC_GPIO_Port, ENC_Pin) == GPIO_PIN_RESET) { }
-  while (HAL_GPIO_ReadPin(ENC_GPIO_Port, ENC_Pin) == GPIO_PIN_SET)   { }
-}
-/* ================= MOTOR SPEED FUNCTIONS ================= */
-
-// Motor A speed (TIM3_CH1 assumed)
+// Motor A speed (TIM3_CH1)
 void Motor_A_SetSpeed(uint8_t speed_percent)
 {
-    if(speed_percent > 100) speed_percent = 100;
-
+    if (speed_percent > 100) speed_percent = 100;
     uint16_t pwm = (speed_percent * 999) / 100;
-
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm);
 }
 
-// Motor B speed (TIM3_CH2 assumed)
+// Motor B speed (TIM3_CH2)
 void Motor_B_SetSpeed(uint8_t speed_percent)
 {
-    if(speed_percent > 100) speed_percent = 100;
-
+    if (speed_percent > 100) speed_percent = 100;
     uint16_t pwm = (speed_percent * 999) / 100;
-
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, pwm);
 }
 
@@ -175,6 +178,7 @@ void Both_Motors_SetSpeed(uint8_t speed_percent)
     Motor_A_SetSpeed(speed_percent);
     Motor_B_SetSpeed(speed_percent);
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -183,25 +187,21 @@ void Both_Motors_SetSpeed(uint8_t speed_percent)
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  // NOTE: Do NOT put any uart_print or variable references here.
+  //       UART is not initialized yet at this point.
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -211,56 +211,57 @@ int main(void)
   MX_TIM3_Init();
   MX_USB_PCD_Init();
   MX_USART2_UART_Init();
+
   /* USER CODE BEGIN 2 */
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);  // Motor A Speed (PA15)
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);   // Motor A PWM on TIM3_CH1 (PC6)
 
-MOTOR_A_FORWARD();                          // Direction via PC0/PC1
-Motor_A_SetSpeed(100);                       // 60% speed
+  // FIX 1: Start base timer FIRST
+  HAL_TIM_Base_Start(&htim3);
 
-uart_print("Motor A running...\r\n");
-  
-  // Initialize both motors to stopped state
+  // FIX 2: Start PWM on BOTH channels (was duplicate CH1 before)
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);   // Motor A PWM
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);   // Motor B PWM  <-- FIXED (was CH1 duplicate)
+
+  // Clean init: stop both motors first
   BOTH_MOTORS_STOP();
   Motor_A_SetSpeed(0);
   Motor_B_SetSpeed(0);
-  HAL_TIM_Base_Start(&htim3);
-  uart_print("Encoder RPM polling started...\r\n");
-  
-  
-    BOTH_MOTORS_FORWARD();              
-    Both_Motors_SetSpeed(100);
 
+  // Now UART is ready - safe to print
+  myPrintf("System initialized.\r\n");
+  myPrintf("Starting motors...\r\n");
 
+  // Start both motors forward at full speed
+  BOTH_MOTORS_FORWARD();
+  Both_Motors_SetSpeed(100);
 
+  myPrintf("Motors running. Encoder RPM polling started...\r\n");
 
-
-
-
-
-
-
-
-
-    
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-        BOTH_MOTORS_FORWARD();              
-    Both_Motors_SetSpeed(100);
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    // 1) First falling edge
-    wait_falling_edge();
+
+    // 1) First falling edge (500ms timeout)
+    if (!wait_falling_edge_timeout(500))
+    {
+        myPrintf("No encoder pulse! Check wiring on PA10.\r\n");
+        HAL_Delay(500);
+        continue;
+    }
     uint32_t t1 = __HAL_TIM_GET_COUNTER(&htim3);
 
-    // 2) Second falling edge
-    wait_falling_edge();
+    // 2) Second falling edge (500ms timeout)
+    if (!wait_falling_edge_timeout(500))
+    {
+        myPrintf("No encoder pulse! Check wiring on PA10.\r\n");
+        HAL_Delay(500);
+        continue;
+    }
     uint32_t t2 = __HAL_TIM_GET_COUNTER(&htim3);
 
     // 3) Compute period in ticks (us)
@@ -271,9 +272,11 @@ uart_print("Motor A running...\r\n");
       float freq = (float)TIMER_HZ / (float)dt;   // Hz
       float rpm  = (60.0f * freq) / PPR;
 
-      uart_print("dt = ");
-uart_print_uint(dt);
-uart_print(" us\r\n");
+      myPrintf("dt = %lu us | RPM = %.2f\r\n", dt, rpm);
+    }
+    else
+    {
+      myPrintf("dt=0, skipping.\r\n");
     }
 
     HAL_Delay(200);
@@ -291,9 +294,6 @@ void SystemClock_Config(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -307,8 +307,6 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
@@ -320,6 +318,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB|RCC_PERIPHCLK_USART2
                               |RCC_PERIPHCLK_I2C1;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
@@ -333,19 +332,9 @@ void SystemClock_Config(void)
 
 /**
   * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
   */
 static void MX_I2C1_Init(void)
 {
-
-  /* USER CODE BEGIN I2C1_Init 0 */
-
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-
-  /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
   hi2c1.Init.Timing = 0x2000090E;
   hi2c1.Init.OwnAddress1 = 0;
@@ -355,46 +344,16 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C1_Init 2 */
-
-  /* USER CODE END I2C1_Init 2 */
-
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK) { Error_Handler(); }
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK) { Error_Handler(); }
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK) { Error_Handler(); }
 }
 
 /**
   * @brief SPI1 Initialization Function
-  * @param None
-  * @retval None
   */
 static void MX_SPI1_Init(void)
 {
-
-  /* USER CODE BEGIN SPI1_Init 0 */
-
-  /* USER CODE END SPI1_Init 0 */
-
-  /* USER CODE BEGIN SPI1_Init 1 */
-
-  /* USER CODE END SPI1_Init 1 */
-  /* SPI1 parameter configuration*/
   hspi1.Instance = SPI1;
   hspi1.Init.Mode = SPI_MODE_MASTER;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES;
@@ -409,30 +368,21 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CRCPolynomial = 7;
   hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
   hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
-  if (HAL_SPI_Init(&hspi1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SPI1_Init 2 */
-
-  /* USER CODE END SPI1_Init 2 */
-
+  if (HAL_SPI_Init(&hspi1) != HAL_OK) { Error_Handler(); }
 }
 
 /**
   * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
+  * FIX 3: Added TIM_CHANNEL_2 configuration for Motor B PWM
   */
 static void MX_TIM3_Init(void)
 {
-
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 47;              // 48MHz/(47+1)=1MHz timer clock
+  htim3.Init.Prescaler = 47;              // 48MHz / (47+1) = 1MHz timer clock
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = 999;                // PWM period -> 1kHz
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -454,29 +404,20 @@ static void MX_TIM3_Init(void)
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
-  // ONLY CHANNEL 1 for Motor A
+  // Channel 1 - Motor A
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) { Error_Handler(); }
 
+  // FIX 3: Channel 2 - Motor B (was missing before!)
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK) { Error_Handler(); }
+
   HAL_TIM_MspPostInit(&htim3);
-
 }
-
 
 /**
   * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
   */
 static void MX_USART2_UART_Init(void)
 {
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
   huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
@@ -487,58 +428,29 @@ static void MX_USART2_UART_Init(void)
   huart2.Init.OverSampling = UART_OVERSAMPLING_16;
   huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
+  if (HAL_UART_Init(&huart2) != HAL_OK) { Error_Handler(); }
 }
 
 /**
   * @brief USB Initialization Function
-  * @param None
-  * @retval None
   */
 static void MX_USB_PCD_Init(void)
 {
-
-  /* USER CODE BEGIN USB_Init 0 */
-
-  /* USER CODE END USB_Init 0 */
-
-  /* USER CODE BEGIN USB_Init 1 */
-
-  /* USER CODE END USB_Init 1 */
   hpcd_USB_FS.Instance = USB;
   hpcd_USB_FS.Init.dev_endpoints = 8;
   hpcd_USB_FS.Init.speed = PCD_SPEED_FULL;
   hpcd_USB_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
   hpcd_USB_FS.Init.low_power_enable = DISABLE;
   hpcd_USB_FS.Init.battery_charging_enable = DISABLE;
-  if (HAL_PCD_Init(&hpcd_USB_FS) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USB_Init 2 */
-
-  /* USER CODE END USB_Init 2 */
-
+  if (HAL_PCD_Init(&hpcd_USB_FS) != HAL_OK) { Error_Handler(); }
 }
 
 /**
   * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
   */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
@@ -547,82 +459,53 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
+  /* Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, CS_I2C_SPI_Pin|LD4_Pin|LD3_Pin|LD5_Pin
                           |LD7_Pin|LD9_Pin|LD10_Pin|LD8_Pin
                           |LD6_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : DRDY_Pin MEMS_INT3_Pin MEMS_INT4_Pin MEMS_INT1_Pin
-                           MEMS_INT2_Pin */
-  GPIO_InitStruct.Pin = DRDY_Pin|MEMS_INT3_Pin|MEMS_INT4_Pin|MEMS_INT1_Pin
-                          |MEMS_INT2_Pin;
+  /* MEMS interrupt pins */
+  GPIO_InitStruct.Pin = DRDY_Pin|MEMS_INT3_Pin|MEMS_INT4_Pin|MEMS_INT1_Pin|MEMS_INT2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : CS_I2C_SPI_Pin LD4_Pin LD3_Pin LD5_Pin
-                           LD7_Pin LD9_Pin LD10_Pin LD8_Pin
-                           LD6_Pin */
+  /* LED output pins */
   GPIO_InitStruct.Pin = CS_I2C_SPI_Pin|LD4_Pin|LD3_Pin|LD5_Pin
-                          |LD7_Pin|LD9_Pin|LD10_Pin|LD8_Pin
-                          |LD6_Pin;
+                          |LD7_Pin|LD9_Pin|LD10_Pin|LD8_Pin|LD6_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PC0 PC1 PC2 PC3 */
+  /* Motor direction pins PC0-PC3 */
   GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : B1_Pin PA10 */
+  /* Button + Encoder input PA10 */
   GPIO_InitStruct.Pin = B1_Pin|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;     // recommended
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
 }
 
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
+  * @brief  Error Handler
   */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-  while (1)
-  {
-  }
-  /* USER CODE END Error_Handler_Debug */
+  while (1) { }
 }
+
 #ifdef USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+  /* User can add logging here */
 }
 #endif /* USE_FULL_ASSERT */
