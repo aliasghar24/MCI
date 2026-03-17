@@ -66,19 +66,9 @@ static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
-static volatile uint8_t temp_raw = 0;
-static volatile int check =0;
-static uint8_t temp = 0;
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-/* Redirect printf to UART */
-int _write(int file, char *ptr, int len)
-{
-  HAL_UART_Transmit(&huart2, (uint8_t*)ptr, len, HAL_MAX_DELAY);
-  return len;
-}
 
 /* USER CODE END 0 */
 
@@ -86,51 +76,50 @@ int _write(int file, char *ptr, int len)
   * @brief  The application entry point.
   * @retval int
   */
-void gyro_init();
-void tmp(void);
 
-uint8_t command(uint8_t a, uint8_t b) {return a | b;}
+#define OUT_X_L  0x28
+#define OUT_X_H  0x29
+#define OUT_Y_L  0x2A
+#define OUT_Y_H  0x2B
+#define OUT_Z_L  0x2C
+#define OUT_Z_H  0x2D
 # define CTRL_REG1 0x20
-# define CTRL_REG1_VAL 0b00001111
-// PD =1 ( Power on), Xen/Yen/Zen enabled
-void gyro_init() 
+# define CTRL_REG1_VAL 0b10001111
+void gyro_init ()
 {
-  uint8_t tx [2] = { CTRL_REG1 , CTRL_REG1_VAL };
-  // Pull CS low to begin communication
-  HAL_GPIO_WritePin (GPIOE , GPIO_PIN_3 , GPIO_PIN_RESET );
-  // Send control register configuration
-  HAL_SPI_Transmit (& hspi1 , tx , 2, HAL_MAX_DELAY );
-  // Pull CS high to end communication
-  HAL_GPIO_WritePin (GPIOE , GPIO_PIN_3 , GPIO_PIN_SET );
+  uint8_t tx [2] = {CTRL_REG1 , CTRL_REG1_VAL};
+  HAL_GPIO_WritePin (GPIOE , GPIO_PIN_3 , GPIO_PIN_RESET);
+  HAL_SPI_Transmit (& hspi1 , tx , 2, HAL_MAX_DELAY);
+  HAL_GPIO_WritePin (GPIOE , GPIO_PIN_3 , GPIO_PIN_SET  );
+}
+// ===== Read Single Register =====
+uint8_t gyro_read_reg(uint8_t reg)
+{
+    uint8_t tx = reg | 0x80;  // MSB=1 for read
+    uint8_t rx = 0;
+
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);  // CS LOW
+    HAL_SPI_Transmit(&hspi1, &tx, 1, HAL_MAX_DELAY);       // send address
+    HAL_SPI_Receive(&hspi1, &rx, 1, HAL_MAX_DELAY);        // receive byte
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);    // CS HIGH
+
+    return rx;
 }
 
-void tmp(void)
+// ===== Read X, Y, Z =====
+void gyro_read_xyz(int16_t *x, int16_t *y, int16_t *z)
 {
-  if (check) return;
-  check = 1;
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
-  temp = command(0x80, 0x26);
-  if (HAL_SPI_Transmit_IT(&hspi1, &temp, 1) != HAL_OK)
-  {
-    check = 0;
-    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
-  }
-}
+    uint8_t tx = OUT_X_L | 0x80 | 0x40;  // read bit + auto-increment bit
+    uint8_t rx[6] = {0};
 
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);  // CS LOW once
+    HAL_SPI_Transmit(&hspi1, &tx, 1, HAL_MAX_DELAY);       // send start register
+    HAL_SPI_Receive(&hspi1, rx, 6, HAL_MAX_DELAY);         // read all 6 bytes
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);    // CS HIGH once
 
-void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
-{
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_SET);
-  check = 0;
-  char msg[16];
-  int temp_display = -((int8_t)temp_raw) + 45;
-  int n = snprintf(msg, sizeof(msg), "%d\r\n", temp_display);
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, n, HAL_MAX_DELAY);
-}
-
-void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
-{
-  HAL_SPI_Receive_IT(&hspi1, (uint8_t*)&temp_raw, 1);
+    *x = (int16_t)((rx[1] << 8) | rx[0]);  // XH | XL
+    *y = (int16_t)((rx[3] << 8) | rx[2]);  // YH | YL
+    *z = (int16_t)((rx[5] << 8) | rx[4]);  // ZH | ZL
 }
 
 
@@ -164,21 +153,37 @@ int main(void)
   MX_USB_PCD_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  gyro_init();
+
   /* USER CODE END 2 */
 
 
  
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  printf("System started!\r\n");
+  gyro_init();
+  int16_t x, y, z;
+  int8_t temp_raw;
+  char buf[64];
+
   while (1)
   {
-    /* USER CODE END WHILE */
-    tmp();
-    HAL_Delay(200);
-     /* USER CODE BEGIN 3 */
-    /* USER CODE BEGIN 3 */
+      // Read the 8-bit temperature register (two's complement)
+      temp_raw = (int8_t)gyro_read_reg(0x26);
+      gyro_read_xyz(&x, &y, &z);        // read X, Y, Z
+      
+      // Convert raw gyro counts to degrees-per-second (dps)
+      float x_dps = x * 0.00875f;
+      float y_dps = y * 0.00875f;
+      float z_dps = z * 0.00875f;
+
+      // Convert temperature register to °C (L3GD20 / L3G4200D datasheet: Temp = 25 + OUT)
+      float temp_c = 2 + (float)temp_raw;
+
+      // Send CSV: Temp(C), X(dps), Y(dps), Z(dps)
+      sprintf(buf, "%.2f, %.2f, %.2f, %.2f\r\n", temp_c, x_dps, y_dps, z_dps);
+      HAL_UART_Transmit(&huart2, (uint8_t*)buf, strlen(buf), HAL_MAX_DELAY);
+
+      HAL_Delay(200);
   }
   /* USER CODE END 3 */
 }

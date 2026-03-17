@@ -10,11 +10,11 @@ plt.ion()
 plot_styles = ['r.-', 'b.-', 'g.-', 'm.-', 'c.-', 'y.-', 'k.-']
 
 # === Data Storage ===
-NUM_SAMPLES = 20
+NUM_SAMPLES = 100
 time_ms = []
 cnt = 0
 all_signals = []  # List of lists. all_signals[0] = i values, all_signals[1] = j values, etc.
-signals = ["Temperature"]
+signals = ["Temperature", "X", "Y", "Z"]
 
 # === Plotting Function ===
 def makeFig(title, xLabel, yLabel, yLimit, *args):
@@ -46,7 +46,7 @@ while True:
 
         # Append each value to its corresponding signal list
         for i, val in enumerate(values):
-            all_signals[i].append(int(val))
+            all_signals[i].append(float(val))
 
         time_ms.append(cnt)
         cnt += 1
@@ -58,8 +58,8 @@ while True:
             label = signals[i]
             args.append((signal, style, label))
 
-        title = "Temperature Plot"
-        drawnow(lambda: makeFig(title, "Time (ms)", "Value", [10, 30], *args))
+        title = "Gyroscope Plot"
+        drawnow(lambda: makeFig(title, "Time (ms)", "Value", [-255, 255], *args))
         plt.pause(0.0001)
 
         # Keep only last 500 samples
