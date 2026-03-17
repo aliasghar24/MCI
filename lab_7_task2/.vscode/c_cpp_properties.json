@@ -1,0 +1,16 @@
+{
+    "configurations": [
+        {
+            "name": "STM32",
+            "compileCommands": "${workspaceFolder}/build/Debug/compile_commands.json",
+            "intelliSenseMode": "linux-gcc-x64",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "includePath": [
+                "${default}",
+                "${workspaceFolder}/Middlewares/ST/ARM/DSP/Inc"
+            ]
+        }
+    ],
+    "version": 4
+}
