@@ -19,6 +19,9 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stdio.h"
+#include "stdarg.h"
+#include "stm32f3xx_hal.h"
+#include "string.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -45,21 +48,11 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 
-TIM_HandleTypeDef htim2;
-
 UART_HandleTypeDef huart2;
 
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
-uint32_t ic_val1 = 0;
-uint32_t ic_val2 = 0;
-uint32_t difference = 0;
-uint8_t is_first_capture = 0;
-
-float frequency = 0;
-
-char msg[50];
 
 /* USER CODE END PV */
 
@@ -68,24 +61,25 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
-static void MX_TIM2_Init(void);
-static void MX_USB_PCD_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
-
+void myPrintf(const char *fmt,...){
+    char buffer[128];   
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+    HAL_UART_Transmit(&huart2,
+                      (uint8_t *)buffer,
+                      strlen(buffer),
+                      HAL_MAX_DELAY);
+}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define SAMPLE_SIZE 16
 
-uint32_t capture_values[SAMPLE_SIZE];
-uint8_t idx = 0;
-uint8_t first_capture = 1;
-uint8_t data_ready = 0;
-
-uint32_t start_time = 0;
-uint32_t end_time = 0;
 /* USER CODE END 0 */
 
 /**
@@ -96,7 +90,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  
 
   /* USER CODE END 1 */
 
@@ -120,24 +113,22 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_SPI1_Init();
-  MX_TIM2_Init();
-  MX_USB_PCD_Init();
   MX_USART2_UART_Init();
+  MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
-  
-  /* Start Timer 2 with Input Capture interrupts on Channel 1 */
-  HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
+    HAL_I2C_Init(&hi2c1);
+    uint8_t buffer[16];
+    HAL_I2C_Mem_Read(&hi2c1, 0x33, 0x0F, I2C_MEMADD_SIZE_8BIT, buffer, 16, HAL_MAX_DELAY);
+    myPrintf("0x%02X\r\n", buffer[0]);
   /* USER CODE END 2 */
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
     /* USER CODE END WHILE */
-    int len = sprintf(msg, "Frequency = %.2f Hz\r\n", frequency);
-    HAL_UART_Transmit(&huart2, (uint8_t*)msg, len, HAL_MAX_DELAY);
-
-    HAL_Delay(500);
+ HAL_I2C_Mem_Read(&hi2c1, 0x33, 0x0F, I2C_MEMADD_SIZE_8BIT, buffer, 16, HAL_MAX_DELAY);
+    myPrintf("0x%02X\r\n", buffer[0]);
+    HAL_Delay(50);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -282,67 +273,6 @@ static void MX_SPI1_Init(void)
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_IC_InitTypeDef sConfigIC = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  /* Enable TIM2 clock */
-  __HAL_RCC_TIM2_CLK_ENABLE();
-  
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 23;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 0xFFFFFFFF;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -432,8 +362,10 @@ static void MX_GPIO_Init(void)
                           |LD7_Pin|LD9_Pin|LD10_Pin|LD8_Pin
                           |LD6_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : DRDY_Pin MEMS_INT3_Pin MEMS_INT4_Pin MEMS_INT1_Pin */
-  GPIO_InitStruct.Pin = DRDY_Pin|MEMS_INT3_Pin|MEMS_INT4_Pin|MEMS_INT1_Pin;
+  /*Configure GPIO pins : DRDY_Pin MEMS_INT3_Pin MEMS_INT4_Pin MEMS_INT1_Pin
+                           MEMS_INT2_Pin */
+  GPIO_InitStruct.Pin = DRDY_Pin|MEMS_INT3_Pin|MEMS_INT4_Pin|MEMS_INT1_Pin
+                          |MEMS_INT2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
@@ -455,65 +387,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA15 - TIM2_CH1 Input Capture */
-  GPIO_InitStruct.Pin = GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.Alternate = 1;  /* AF1 for TIM2 on PA15 */
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
-  
-  /* TIM2 interrupt init */
-  HAL_NVIC_SetPriority(TIM2_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(TIM2_IRQn);
-
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim->Instance == TIM2 && 
-        htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
-    {
-        if (is_first_capture == 0)
-        {
-            ic_val1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
-            is_first_capture = 1;
-        }
-        else
-        {   
-            HAL_GPIO_TogglePin(GPIOE, LD3_Pin);
-            ic_val2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
-            
-            if (ic_val2 >= ic_val1)
-                difference = ic_val2 - ic_val1;
-            else
-                difference = (0xFFFFFFFF - ic_val1) + ic_val2 + 1;
-
-            // Timer frequency = 1 MHz (24 MHz / (prescaler+1) = 24 MHz / 24 = 1 MHz)
-            // Frequency = Timer_Freq / (difference = period in ticks)
-            if (difference != 0)
-                frequency = 1000000.0f / difference;
-            else
-                frequency = 0;
-
-            is_first_capture = 0;
-        }
-    }
-}
 
 /* USER CODE END 4 */
 
